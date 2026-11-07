@@ -1,0 +1,21 @@
+LinArt Diktat
+Copyright 2026 Vladimir Linartas (LinArt Labs)
+
+LinArt Diktat is free and open-source software licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0). Source code: https://github.com/Vikinges/linart-diktat
+
+Everything runs locally on this computer. No audio, text or usage data is sent anywhere.
+
+This installer also contains third-party software and models under their own licenses
+(full list in the "docs" folder of the installation, THIRD_PARTY_NOTICES.md):
+
+  - whisper.cpp and llama.cpp (MIT License)
+  - OpenAI Whisper large-v3-turbo speech model (MIT License)
+  - Google TranslateGemma 4B translation model
+
+  Gemma is provided under and subject to the Gemma Terms of Use found at https://ai.google.dev/gemma/terms
+  and the Gemma Prohibited Use Policy at https://ai.google.dev/gemma/prohibited_use_policy.
+  By continuing you agree to these terms for the bundled translation model.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. Machine translation
+and speech recognition can contain errors - always check important texts before sending them.

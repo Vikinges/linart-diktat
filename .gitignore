@@ -13,3 +13,15 @@ models/
 .cache/
 config.json
 *.bak*
+engines/
+build/venv/
+build/work/
+build/dist/
+build/stage/
+build/output/
+build/downloads/
+build/icon.ico
+tests/*.log
+
+models/
+

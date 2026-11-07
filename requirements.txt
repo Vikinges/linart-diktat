@@ -1,10 +1,7 @@
-# install torch first (see README)
-transformers>=4.45,<5
-huggingface_hub>=0.25,<1.0
-faster-whisper>=1.0
 numpy
 sounddevice
 keyboard
 pyperclip
 pystray
 pillow
+
