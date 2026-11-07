@@ -10,6 +10,7 @@ import ctypes
 import io
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -194,8 +195,44 @@ class Whisper:
             best = max(allowed, key=lambda c: probs.get(c, 0.0))
             j = self._call(wav, best, prompt)
             det = best
-        text = " ".join(s.strip() for s in str(j.get("text", "")).splitlines() if s.strip())
-        return text.strip(), det or (lang or "")
+        # whisper-server puts a newline between segments; a segment can end in the middle of a word,
+        # the next one then starts WITHOUT a space -> join with "" (never with " ") and tidy spaces.
+        text = clean_text(str(j.get("text", "")))
+        rms = float(np.sqrt(np.mean(audio ** 2))) if len(audio) else 0.0
+        if rms < 0.012 and _is_hallucination(text):
+            text = ""
+        return text, det or (lang or "")
+
+
+def clean_text(raw: str) -> str:
+    """Join whisper-server segments (newline-separated, may split inside a word) into one clean line."""
+    text = re.sub(r"[ \t]{2,}", " ", raw.replace("\r", "").replace("\n", "")).strip()
+    return re.sub(r"\s+([,.!?;:])", r"\1", text)
+
+
+# Whisper's typical "phantom" outputs on silence / breathing / keyboard noise
+_HALLU = {"thank you", "thank you.", "thanks for watching", "thanks for watching!", "you", "bye", "bye.",
+          "спасибо", "спасибо.", "спасибо за внимание", "спасибо за внимание.", "продолжение следует...",
+          "продолжение следует", "субтитры сделал dimatorzok", "редактор субтитров а.семкин корректор а.егорова",
+          "vielen dank.", "vielen dank", "untertitel im auftrag des zdf, 2017", "untertitel der amara.org-community",
+          "...", "."}
+
+
+def _is_hallucination(text: str) -> bool:
+    t = text.strip().lower()
+    return not t or t in _HALLU or "субтитр" in t or "untertitel" in t or "amara.org" in t
+
+
+# Short sentence in the speaker's language with clean punctuation: Whisper copies the style of the prompt.
+# (whisper.cpp detects the language from the audio only, so this does not bias language detection.)
+STYLE_PROMPT = {
+    "ru": "Хорошо, давайте обсудим это. Вот что я думаю: сначала проверим настройки, а потом всё протестируем.",
+    "de": "Gut, lassen Sie uns das besprechen. Ich denke, wir prüfen zuerst die Einstellungen und testen dann alles.",
+    "en": "Okay, let's discuss this. Here is what I think: we check the settings first, and then we test everything.",
+    "pl": "Dobrze, omówmy to. Uważam, że najpierw sprawdzimy ustawienia, a potem wszystko przetestujemy.",
+    "lt": "Gerai, aptarkime tai. Manau, kad pirmiausia patikrinsime nustatymus, o tada viską išbandysime.",
+    "uk": "Добре, давайте обговоримо це. Ось що я думаю: спочатку перевіримо налаштування, а потім усе протестуємо.",
+}
 
 
 # ---------------------------------------------------------------- translation

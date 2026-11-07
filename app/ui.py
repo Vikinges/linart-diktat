@@ -65,7 +65,9 @@ S = {
                copy="Copy", replace="Replace selection", to="to:", copied="✓ copied", translating="translating…",
                error="Translation error",
                started="Ready. Hold {a} to dictate, {b} to dictate + translate; select text and press {c} to translate.",
-               running="LinArt Diktat is already running (see the tray)."),
+               running="LinArt Diktat is already running (see the tray).",
+               ind_rec="Listening…", ind_rec_tr="Listening… (will translate)", ind_busy="Recognising…",
+               ind_tr="Translating…", indicator="Show recording indicator"),
     "ru": dict(ready="LinArt Diktat — готов", rec="LinArt Diktat — запись…", busy="LinArt Diktat — обработка…",
                loading="LinArt Diktat — загрузка моделей…",
                hk1="Диктовка: держать {a}  ·  с переводом: держать {b}", hk2="Перевод выделенного: {a}  ·  заменить: {b}",
@@ -76,7 +78,9 @@ S = {
                quit="Выход", copy="Копировать", replace="Заменить выделенное", to="на:", copied="✓ скопировано",
                translating="перевожу…", error="Ошибка перевода",
                started="Готово. Держите {a} — диктовка, {b} — диктовка с переводом; выделите текст и нажмите {c} — перевод.",
-               running="LinArt Diktat уже запущен (значок в трее)."),
+               running="LinArt Diktat уже запущен (значок в трее).",
+               ind_rec="Говорите…", ind_rec_tr="Говорите… (с переводом)", ind_busy="Распознаю…",
+               ind_tr="Перевожу…", indicator="Показывать индикатор записи"),
     "de": dict(ready="LinArt Diktat — bereit", rec="LinArt Diktat — Aufnahme…", busy="LinArt Diktat — verarbeite…",
                loading="LinArt Diktat — lade Modelle…",
                hk1="Diktieren: {a} halten  ·  mit Übersetzung: {b} halten", hk2="Markierung übersetzen: {a}  ·  ersetzen: {b}",
@@ -87,9 +91,65 @@ S = {
                copy="Kopieren", replace="Markierung ersetzen", to="nach:", copied="✓ kopiert", translating="übersetze…",
                error="Übersetzungsfehler",
                started="Bereit. {a} halten = diktieren, {b} halten = diktieren + übersetzen; Text markieren + {c} = übersetzen.",
-               running="LinArt Diktat läuft bereits (siehe Infobereich)."),
+               running="LinArt Diktat läuft bereits (siehe Infobereich).",
+               ind_rec="Sprechen Sie…", ind_rec_tr="Sprechen Sie… (mit Übersetzung)", ind_busy="Erkenne…",
+               ind_tr="Übersetze…", indicator="Aufnahme-Anzeige einblenden"),
 }
 T = S[ui_lang()]
+
+
+# ------------------------------------------------------------------ recording indicator (Tk, main thread only)
+class Indicator:
+    """Small pill at the bottom centre of the screen. Never takes focus, clicks pass through."""
+    COLORS = {"rec": "#e24343", "busy": "#f0a24a", "tr": "#6cd3e6"}
+
+    def __init__(self, root: tk.Tk):
+        w = tk.Toplevel(root)
+        w.overrideredirect(True)
+        w.attributes("-topmost", True)
+        w.attributes("-alpha", 0.93)
+        w.configure(bg="#1c2129", highlightthickness=1, highlightbackground="#2e3742")
+        self.dot = tk.Label(w, text="●", bg="#1c2129", fg="#e24343", font=("Segoe UI", 14))
+        self.dot.pack(side="left", padx=(14, 6), pady=6)
+        self.lbl = tk.Label(w, bg="#1c2129", fg="#dde4ea", font=("Segoe UI", 11))
+        self.lbl.pack(side="left", padx=(0, 16), pady=6)
+        w.withdraw()
+        self.w, self.root, self.blink, self.mode = w, root, False, "idle"
+        w.update_idletasks()
+        try:
+            u = ctypes.windll.user32
+            self.hwnd = u.GetParent(w.winfo_id())
+            # WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOPMOST
+            u.SetWindowLongW(self.hwnd, -20, u.GetWindowLongW(self.hwnd, -20) | 0x08000000 | 0x80 | 0x20 | 0x80000 | 0x8)
+        except Exception:
+            self.hwnd = None
+
+    def set(self, mode: str, text: str = ""):
+        self.mode = mode
+        if mode == "idle":
+            self.w.withdraw()
+            return
+        self.dot.config(fg=self.COLORS.get(mode, "#e24343"))
+        self.lbl.config(text=text)
+        self.w.update_idletasks()
+        sw, sh = self.w.winfo_screenwidth(), self.w.winfo_screenheight()
+        ww, wh = self.w.winfo_reqwidth(), self.w.winfo_reqheight()
+        self.w.geometry(f"+{(sw - ww) // 2}+{sh - wh - 90}")
+        if self.hwnd:
+            ctypes.windll.user32.ShowWindow(self.hwnd, 4)          # SW_SHOWNOACTIVATE
+            ctypes.windll.user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x1 | 0x2 | 0x10)   # topmost, no move/size/activate
+        else:
+            self.w.deiconify()
+        if mode == "rec" and not self.blink:
+            self.blink = True
+            self._tick(True)
+
+    def _tick(self, on: bool):
+        if self.mode != "rec":
+            self.blink = False
+            return
+        self.dot.config(fg="#e24343" if on else "#5a2020")
+        self.root.after(500, self._tick, not on)
 
 
 # ------------------------------------------------------------------ popup (Tk, main thread only)

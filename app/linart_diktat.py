@@ -1,4 +1,4 @@
-"""LinArt Diktat - local push-to-talk dictation and translation for Windows. Nothing leaves your PC.
+﻿"""LinArt Diktat - local push-to-talk dictation and translation for Windows. Nothing leaves your PC.
 
   hold F8        dictate in the language you speak
   hold F9        dictate + translate (default: English)
@@ -25,11 +25,11 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ui import LANGS, T, UIQ, Popup, detect_lang, name  # noqa: E402
+from ui import LANGS, T, UIQ, Indicator, Popup, detect_lang, name  # noqa: E402
 import engines  # noqa: E402
 
 APP = "LinArt Diktat"
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 DATA = Path(os.environ.get("APPDATA", Path.home())) / APP
 DATA.mkdir(parents=True, exist_ok=True)
 CFG_FILE = DATA / "config.json"
@@ -50,6 +50,7 @@ DEFAULT = {
     "always_translate": False,
     "vocabulary": "",                         # names/terms Whisper should spell correctly
     "beep": True,
+    "show_indicator": True,
     "min_seconds": 0.35,
     "translator_url": "",                     # optional: OpenAI-compatible server instead of built-in model
     "translator_model": "",
@@ -106,13 +107,36 @@ WHISPER = engines.Whisper(DATA, engines.cpu_threads())
 TRANSLATOR = engines.Translator(DATA, lambda: CFG)
 
 
-def beep(freq: int, ms: int = 60) -> None:
+_TONES: dict = {}
+
+
+def _tone(freq: int, ms: int) -> bytes:
+    """Short soft sine tone as an in-memory WAV (played through the normal speakers/headset)."""
+    if (freq, ms) not in _TONES:
+        sr = 22050
+        t = np.arange(int(sr * ms / 1000)) / sr
+        env = np.minimum(1.0, np.minimum(t, t[-1] - t) * 150)          # ~7 ms fade in/out, no clicks
+        _TONES[(freq, ms)] = engines._wav_bytes((0.3 * np.sin(2 * np.pi * freq * t) * env).astype(np.float32), sr)
+    return _TONES[(freq, ms)]
+
+
+def beep(freq: int, ms: int = 90) -> None:
     if CFG.get("beep"):
         try:
             import winsound
-            threading.Thread(target=winsound.Beep, args=(freq, ms), daemon=True).start()
+            data = _tone(freq, ms)
+            threading.Thread(target=winsound.PlaySound, args=(data, winsound.SND_MEMORY | winsound.SND_NODEFAULT),
+                             daemon=True).start()
         except Exception:
             pass
+
+
+def indicate(mode: str) -> None:
+    if not CFG.get("show_indicator", True):
+        mode = "idle"
+    text = {"rec": T["ind_rec_tr"] if STATE.get("translate_next") else T["ind_rec"],
+            "busy": T["ind_busy"], "tr": T["ind_tr"]}.get(mode, "")
+    UIQ.put(("ind", mode if mode in ("rec", "busy", "tr") else "idle", text))
 
 
 def make_icon(mode: str) -> Image.Image:
@@ -129,6 +153,7 @@ def make_icon(mode: str) -> Image.Image:
 
 def set_mode(m: str) -> None:
     STATE["mode"] = m
+    indicate(m)
     if icon is not None:
         try:
             icon.icon = make_icon(m)
@@ -223,11 +248,17 @@ def worker() -> None:
             t = time.time()
             audio = trim(audio)
             lang = None if CFG["language"] == "auto" else CFG["language"]
-            text, det = WHISPER.transcribe(audio, SR, lang, CFG.get("speech_languages") or [], CFG.get("vocabulary", ""))
+            # punctuation style prompt in the language the user spoke last time (+ custom vocabulary)
+            plang = lang or STATE.get("last_lang") or (CFG.get("speech_languages") or ["en"])[0]
+            prompt = (engines.STYLE_PROMPT.get(plang, "") + " " + CFG.get("vocabulary", "")).strip()
+            text, det = WHISPER.transcribe(audio, SR, lang, CFG.get("speech_languages") or [], prompt)
+            if det:
+                STATE["last_lang"] = det
             log(f"[{det}] {len(audio) / SR:.1f}s -> {text!r} ({time.time() - t:.1f}s)")
             if text and do_tr:
                 src = det or detect_lang(text)
                 tgt = target_for(src)
+                indicate("tr")
                 text = TRANSLATOR.translate(text, src, tgt)
                 log(f"translated {src}->{tgt}: {text!r}")
             STATE["last_text"] = text
@@ -277,12 +308,12 @@ def _cursor_pos():
 
 def run_popup_translation(sel: str, tgt: str, x: int, y: int) -> None:
     src = detect_lang(sel)
-    UIQ.put(("show", x, y, f"{name(src)} → {name(tgt)} · {T['translating']}", sel[:400], True, sel, tgt))
+    UIQ.put(("show", x, y, f"{name(src)} â†’ {name(tgt)} Â· {T['translating']}", sel[:400], True, sel, tgt))
     try:
         t = time.time()
         out = TRANSLATOR.translate(sel, src, tgt)
         log(f"selection {src}->{tgt} {len(sel)} chars in {time.time() - t:.1f}s")
-        UIQ.put(("show", x, y, f"{name(src)} → {name(tgt)} · {time.time() - t:.1f} s · Esc", out, False, sel, tgt))
+        UIQ.put(("show", x, y, f"{name(src)} â†’ {name(tgt)} Â· {time.time() - t:.1f} s Â· Esc", out, False, sel, tgt))
     except Exception as e:
         log(f"translate ERROR: {e}")
         UIQ.put(("show", x, y, T["error"], str(e), False, sel, tgt))
@@ -412,6 +443,7 @@ menu = pystray.Menu(
           for c, n, _ in LANGS[:6]])),
     pystray.MenuItem(T["always"], _toggle("always_translate"), checked=lambda it: CFG.get("always_translate")),
     pystray.Menu.SEPARATOR,
+    pystray.MenuItem(T["indicator"], _toggle("show_indicator"), checked=lambda it: CFG.get("show_indicator", True)),
     pystray.MenuItem(T["beep"], _toggle("beep"), checked=lambda it: CFG.get("beep")),
     pystray.MenuItem(T["autostart"], toggle_autostart, checked=lambda it: autostart_enabled()),
     pystray.MenuItem(T["again"], lambda i, it: paste(STATE["last_text"])),
@@ -455,12 +487,16 @@ def main():
     popup = Popup(root, on_replace=lambda t: threading.Thread(target=lambda: (time.sleep(0.15), paste(t)), daemon=True).start(),
                   on_retranslate=lambda s, t, x, y: threading.Thread(target=run_popup_translation, args=(s, t, x, y), daemon=True).start())
 
+    indicator = Indicator(root)
+
     def pump():
         try:
             while True:
                 msg = UIQ.get_nowait()
                 if msg[0] == "show":
                     popup.show(*msg[1:])
+                elif msg[0] == "ind":
+                    indicator.set(msg[1], msg[2])
         except queue.Empty:
             pass
         root.after(60, pump)

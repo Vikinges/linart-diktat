@@ -29,8 +29,13 @@ UninstallDisplayIcon={app}\{#AppExe}
 WizardStyle=modern
 Compression=lzma2/fast
 SolidCompression=no
+; default: ONE setup.exe (~3.4 GB). For GitHub releases (2 GB/file limit) compile with /DSPAN=1
+#ifdef SPAN
 DiskSpanning=yes
-DiskSliceSize=max
+DiskSliceSize=1900000000
+#else
+DiskSpanning=no
+#endif
 CloseApplications=force
 MinVersion=10.0
 
