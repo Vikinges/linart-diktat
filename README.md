@@ -7,11 +7,11 @@ Select any text and press a key — a translation pops up next to the cursor. Th
 
 ## Features
 
-- **Push-to-talk dictation** – hold `F9`, speak, release. Russian, German, English auto-detected.
-- **Dictate & translate** – hold `F10`: speak Russian, get German (or any language you pick) typed in.
-- **Translate anything on screen** – select text, press `F8`: popup with the translation, a language dropdown
+- **Push-to-talk dictation** – hold `F8`, speak, release. Text is written in the language you spoke (Russian, German, English auto-detected).
+- **Dictate & translate** – hold `F9`: speak Russian or German, get English (or any language you pick) typed in.
+- **Translate anything on screen** – select text, press `F7`: popup with the translation, a language dropdown
   (English, Русский, Deutsch, Polski, Lietuvių, 中文 + more), *Copy* and *Replace selection* buttons.
-- **Replace in place** – select your own text, `Shift+F8` → replaced by its translation.
+- **Replace in place** – select your own text, `Shift+F7` → replaced by its translation.
 - **Hands-free mode** – `Ctrl+Alt+D` toggles continuous recording.
 - **GPU accelerated** – Whisper large-v3-turbo on AMD (ROCm) or NVIDIA (CUDA); ~2.5 s for 9 s of speech on a Radeon 8060S iGPU.
   Automatic CPU fallback via faster-whisper.
@@ -57,10 +57,10 @@ To start with Windows, put a shortcut to `start_diktat.bat` into `shell:startup`
 
 | Key | Action |
 |---|---|
-| hold `F9` | dictate |
-| hold `F10` | dictate + translate |
-| `F8` | translate selected text (popup) |
-| `Shift+F8` | replace selected text with its translation |
+| hold `F8` | dictate in the language you speak |
+| hold `F9` | dictate + translate (default: English) |
+| `F7` | translate selected text (popup) |
+| `Shift+F7` | replace selected text with its translation |
 | `Ctrl+Alt+D` | hands-free on/off |
 
 On many laptops the F-keys need `Fn`. All keys are configurable in `config.json`
@@ -72,8 +72,8 @@ On many laptops the F-keys need `Fn`. All keys are configurable in `config.json`
 |---|---|
 | `language` | `auto`, `ru`, `de`, `en` |
 | `vocabulary` | comma-separated terms Whisper should spell correctly |
-| `translate_to` / `translate_to_if_german` | target language for dictation & `Shift+F8` |
-| `selection_target` / `selection_target_if_same` | target for the `F8` popup (default: Russian, Russian text → English) |
+| `translate_to` / `translate_to_if_german` | target language for `F9` dictation & `Shift+F7` |
+| `selection_target` / `selection_target_if_same` | target for the `F7` popup (default: Russian, Russian text → English) |
 | `always_translate` | translate every dictation, whatever key is used |
 | `llm_url`, `llm_model_translate`, `llm_model` | local LLM endpoint and models |
 | `llm_cleanup` | let the LLM fix punctuation and filler words |

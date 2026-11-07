@@ -1,7 +1,7 @@
 """LinArt Diktat - local push-to-talk dictation + translation for Windows (no cloud).
 
-Hold F9 and speak -> release -> text is typed into the active field.
-Hold F10 -> dictate and translate. F8 -> translate selected text (popup), Shift+F8 -> replace selection.
+Hold F8 and speak -> release -> text is typed in the language you spoke.
+Hold F9 -> dictate and translate (default: to English). F7 -> translate selected text (popup), Shift+F7 -> replace selection.
 Ctrl+Alt+D toggles hands-free dictation (press again to stop).
 Speech recognition: Whisper large-v3-turbo on the GPU (PyTorch ROCm/CUDA), CPU fallback via faster-whisper.
 Translation and optional cleanup via a local LLM (LM Studio or any OpenAI-compatible server).
@@ -283,8 +283,8 @@ import queue  # noqa: E402
 import tkinter as tk  # noqa: E402
 from translate_ui import UIQ, LANGS, Popup, detect_lang, name, selection_target, target_for, translate  # noqa: E402
 
-for k, v in {"dictate_key": "f9", "dictate_translate_key": "f10", "translate_selection_key": "f8",
-             "replace_selection_key": "shift+f8", "translate_to": "de", "translate_to_if_german": "ru",
+for k, v in {"dictate_key": "f8", "dictate_translate_key": "f9", "translate_selection_key": "f7",
+             "replace_selection_key": "shift+f7", "translate_to": "en", "translate_to_if_german": "ru",
              "llm_model_translate": "qwen/qwen3-vl-30b", "selection_target": "ru", "selection_target_if_same": "en"}.items():
     CFG.setdefault(k, v)
 CFG_FILE.write_text(json.dumps(CFG, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -498,12 +498,12 @@ menu = pystray.Menu(
     pystray.MenuItem("Диктовку переводить на", pystray.Menu(*[
         pystray.MenuItem(n, _set("translate_to", c), checked=lambda it, c=c: CFG["translate_to"] == c, radio=True)
         for c, n, _ in LANGS[:6]])),
-    pystray.MenuItem("F8 (чужой текст) переводить на", pystray.Menu(*[
+    pystray.MenuItem(f"{K(CFG['translate_selection_key'])} (чужой текст) переводить на", pystray.Menu(*[
         pystray.MenuItem(n, _set("selection_target", c), checked=lambda it, c=c: CFG["selection_target"] == c, radio=True)
         for c, n, _ in LANGS[:6]])),
-    pystray.MenuItem("Немецкий текст переводить на", pystray.Menu(*[
-        pystray.MenuItem(lbl, _set("translate_to_if_german", code), checked=lambda it, c=code: CFG["translate_to_if_german"] == c, radio=True)
-        for lbl, code in (("Русский", "ru"), ("English", "en"))])),
+    pystray.MenuItem("Если речь уже на этом языке — переводить на", pystray.Menu(*[
+        pystray.MenuItem(n, _set("translate_to_if_german", c), checked=lambda it, c=c: CFG["translate_to_if_german"] == c, radio=True)
+        for c, n, _ in LANGS[:6]])),
     pystray.MenuItem("Сглаживать диктовку локальной LLM", _toggle("llm_cleanup"), checked=lambda it: CFG.get("llm_cleanup")),
     pystray.MenuItem("Звуковые сигналы", _toggle("beep"), checked=lambda it: CFG.get("beep")),
     pystray.MenuItem("Вставить последний текст ещё раз", lambda i, it: paste(STATE["last_text"])),
