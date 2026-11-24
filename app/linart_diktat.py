@@ -29,7 +29,7 @@ from ui import LANGS, T, UIQ, Indicator, Popup, detect_lang, name  # noqa: E402
 import engines  # noqa: E402
 
 APP = "LinArt Diktat"
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 DATA = Path(os.environ.get("APPDATA", Path.home())) / APP
 DATA.mkdir(parents=True, exist_ok=True)
 CFG_FILE = DATA / "config.json"
