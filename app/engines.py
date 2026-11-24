@@ -263,15 +263,33 @@ class Translator:
             return json.loads(r.read())["content"].strip()
 
 
+def _pick_loaded_model(cfg: dict) -> str:
+    """Reuse the model that is ALREADY loaded on the external server (LM Studio) instead of forcing a second one
+    into memory: the configured model if it is loaded, else any loaded LLM/VLM, else the configured name."""
+    want = cfg.get("translator_model", "")
+    try:
+        base = cfg["translator_url"].rstrip("/").rsplit("/v1", 1)[0]
+        with urllib.request.urlopen(base + "/api/v0/models", timeout=3) as r:   # LM Studio REST API
+            ms = json.loads(r.read()).get("data", [])
+        loaded = [m["id"] for m in ms if m.get("state") == "loaded" and m.get("type") in ("llm", "vlm")]
+        return want if (want in loaded or not loaded) else loaded[0]
+    except Exception:                                                          # not LM Studio / no such endpoint
+        return want
+
+
 def _openai_translate(text: str, tgt: str, cfg: dict) -> str:
-    body = {"model": cfg.get("translator_model", ""), "temperature": 0.1, "messages": [
+    model = _pick_loaded_model(cfg)
+    body = {"model": model, "temperature": 0.1, "messages": [
         {"role": "system", "content": f"Translate the user's text into {EN_NAMES.get(tgt, tgt)}. Keep meaning, tone, "
          "names, numbers and formatting. Output ONLY the translation."},
         {"role": "user", "content": text}]}
+    if "gpt-oss" in model:
+        body["reasoning_effort"] = "low"                                       # fast: translation needs no reasoning
     req = urllib.request.Request(cfg["translator_url"].rstrip("/") + "/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as r:
-        return json.loads(r.read())["choices"][0]["message"]["content"].strip()
+        out = json.loads(r.read())["choices"][0]["message"]["content"]
+    return re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
 
 
 def cpu_threads() -> int:
