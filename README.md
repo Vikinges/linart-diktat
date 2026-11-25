@@ -18,6 +18,9 @@ but 100% offline: no account, no cloud, no subscription.
   On a Radeon 8060S: ~0.9 s to transcribe 9 s of speech, ~0.5–1 s per translated sentence, ready ~5 s after start.
 - **Everything bundled** – one installer, no Python, no LM Studio, nothing downloaded after installation.
 - Tray menu in English, German or Russian (follows Windows), start with Windows, custom vocabulary.
+- **Self-healing watchdog** - checks every 10 s that the microphone still delivers audio (reopens it after
+  sleep or a headset change), probes the keyboard hook once a minute with an invisible `F24` key and restarts
+  the app if Windows dropped the hook or the UI hangs. Everything it does is written to `diktat.log`.
 
 ## Install
 

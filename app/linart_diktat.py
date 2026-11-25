@@ -29,7 +29,7 @@ from ui import LANGS, T, UIQ, Indicator, Popup, detect_lang, name  # noqa: E402
 import engines  # noqa: E402
 
 APP = "LinArt Diktat"
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 DATA = Path(os.environ.get("APPDATA", Path.home())) / APP
 DATA.mkdir(parents=True, exist_ok=True)
 CFG_FILE = DATA / "config.json"
@@ -164,28 +164,56 @@ def set_mode(m: str) -> None:
 
 # ---------------------------------------------------------------- audio
 def _audio_cb(indata, frames, t, status):
+    STATE["last_audio"] = time.time()
     if STATE["mode"] == "rec":
         STATE["frames"].append(indata[:, 0].copy())
 
 
 stream = None
+STREAM_LOCK = threading.Lock()
+STATE["last_audio"] = 0.0
 
 
-def open_stream():
+def open_stream(reason: str = "") -> bool:
+    """(Re)open the microphone. After sleep or a headset change PortAudio has to re-enumerate devices,
+    otherwise the old stream silently stops delivering audio."""
     global stream
-    try:
-        stream = sd.InputStream(samplerate=SR, channels=1, dtype="float32", callback=_audio_cb, blocksize=1024)
-        stream.start()
-    except Exception as e:
-        log(f"microphone error: {e}")
+    with STREAM_LOCK:
+        if stream is not None:
+            try:
+                stream.abort()
+                stream.close()
+            except Exception:
+                pass
+            stream = None
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                pass
+        try:
+            stream = sd.InputStream(samplerate=SR, channels=1, dtype="float32", callback=_audio_cb, blocksize=1024)
+            stream.start()
+            STATE["last_audio"] = time.time()
+            if reason:
+                log(f"watchdog: microphone reopened ({reason})")
+            return True
+        except Exception as e:
+            log(f"microphone error ({reason or 'open'}): {e}")
+            return False
+
+
+def audio_alive(max_age: float = 1.5) -> bool:
+    return stream is not None and stream.active and time.time() - STATE.get("last_audio", 0) < max_age
 
 
 def start_rec() -> None:
+    if not audio_alive():
+        open_stream("no audio at key press")
     with LOCK:
         if STATE["mode"] not in ("idle",):
             return
-        if stream is None:
-            open_stream()
+        STATE["rec_started"] = time.time()
         STATE["frames"] = []
         set_mode("rec")
     beep(880)
@@ -200,6 +228,11 @@ def stop_rec() -> None:
         set_mode("busy")
     beep(620)
     if len(audio) < CFG["min_seconds"] * SR:
+        held = time.time() - STATE.get("rec_started", time.time())
+        if held >= CFG["min_seconds"]:
+            log(f"watchdog: key held {held:.1f}s but got {len(audio) / SR:.2f}s audio -> reopening microphone")
+            beep(300, 200)
+            threading.Thread(target=open_stream, args=("recording was empty",), daemon=True).start()
         set_mode("idle")
         return
     JOBS.put((audio, STATE.get("translate_next", False)))
@@ -380,6 +413,75 @@ def bind_hotkeys():
             log(f"cannot bind {key!r}: {e}")
 
 
+# ---------------------------------------------------------------- watchdog
+PROBE_SCAN = 0x76          # F24: not on real keyboards; suppressed, never reaches other apps
+STATE["ui_alive"] = time.time()
+
+
+def _kb_probe() -> bool:
+    """Inject F24 and check that our low-level keyboard hook still sees it.
+    Windows silently removes hooks that respond too slowly (e.g. after sleep or heavy load).
+    keyboard.send() cannot type F24 on some layouts (DE), so use keybd_event directly."""
+    ev = threading.Event()
+    h = keyboard.hook_key("f24", lambda e: ev.set(), suppress=True)
+    try:
+        ctypes.windll.user32.keybd_event(0x87, PROBE_SCAN, 0, 0)
+        ctypes.windll.user32.keybd_event(0x87, PROBE_SCAN, 2, 0)
+        return ev.wait(1.5)
+    finally:
+        try:
+            keyboard.unhook(h)
+        except Exception:
+            pass
+
+
+def restart_self(reason: str) -> None:
+    """Start a fresh copy after a short delay (the single-instance mutex must be released first), then exit."""
+    import subprocess
+    log(f"watchdog: {reason} -> restarting")
+    if getattr(sys, "frozen", False):
+        cmd = f'start "" "{sys.executable}"'
+    else:
+        cmd = f'start "" "{sys.executable}" "{Path(__file__).resolve()}"'
+    try:
+        subprocess.Popen(f"cmd /c timeout /t 3 /nobreak >nul & {cmd}", shell=True, creationflags=0x08000000)
+    except Exception as e:
+        log(f"watchdog: cannot schedule restart: {e}")
+        return
+    for srv in (WHISPER.srv, TRANSLATOR.srv):
+        try:
+            srv.stop()
+        except Exception:
+            pass
+    os._exit(3)
+
+
+def watchdog() -> None:
+    """Every 10 s: microphone delivers audio, keyboard hook sees keys (probe every 60 s), UI loop is alive."""
+    while STATE["mode"] == "loading":
+        time.sleep(2)
+    time.sleep(3)
+    probe_ok = _kb_probe()
+    log(f"watchdog: started (keyboard probe {'ok' if probe_ok else 'not supported - disabled'})")
+    kb_fail, last_probe = 0, time.time()
+    while True:
+        time.sleep(10)
+        idle = STATE["mode"] == "idle" and not STATE["toggle"]
+        if time.time() - STATE["ui_alive"] > 90:
+            restart_self(f"UI loop hung for {time.time() - STATE['ui_alive']:.0f}s")
+        if idle and not audio_alive(5.0):
+            open_stream("stream stopped delivering audio")
+        if probe_ok and idle and time.time() - last_probe > 60:
+            last_probe = time.time()
+            if _kb_probe():
+                kb_fail = 0
+            else:
+                kb_fail += 1
+                log(f"watchdog: keyboard hook did not see the probe key ({kb_fail}x)")
+                if kb_fail >= 2:
+                    restart_self("keyboard hook lost")
+
+
 # ---------------------------------------------------------------- autostart (HKCU Run key)
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -481,6 +583,7 @@ def main():
     icon = pystray.Icon("linart_diktat", make_icon("loading"), T["loading"], menu)
     icon.run_detached()
     threading.Thread(target=boot, daemon=True).start()
+    threading.Thread(target=watchdog, daemon=True).start()
 
     root = tk.Tk()
     root.withdraw()
@@ -490,6 +593,7 @@ def main():
     indicator = Indicator(root)
 
     def pump():
+        STATE["ui_alive"] = time.time()
         try:
             while True:
                 msg = UIQ.get_nowait()
